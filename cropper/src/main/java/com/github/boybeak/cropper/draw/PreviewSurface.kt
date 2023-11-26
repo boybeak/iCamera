@@ -6,6 +6,8 @@ import android.opengl.EGL14
 import android.opengl.EGLContext
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Size
+import android.util.SizeF
 import android.view.Surface
 import com.github.boybeak.cropper.egl.EglCore
 import com.github.boybeak.cropper.egl.FullFrameRect
@@ -42,11 +44,18 @@ class PreviewSurface(private val surface: Surface) : OnFrameAvailableListener {
     fun setInputSize(width: Int, height: Int) {
         drawer?.setInputSize(width, height)
     }
+
+    fun getInputSize(): Size {
+        return drawer?.inputSize?.run {
+            Size(width, height)
+        } ?: Size(0, 0)
+    }
+
     fun start(onStart: (SurfaceTexture) -> Unit) {
         previewThread.start()
         previewHandler.post {
             eglCore = EglCore()
-            windowSurface = WindowSurface(eglCore!!, surface, true)
+            windowSurface = WindowSurface(eglCore!!, surface, false)
             windowSurface?.makeCurrent()
 
             drawer = SizedFullFrameRect(Texture2dProgram(Texture2dProgram.ProgramType.TEXTURE_EXT))

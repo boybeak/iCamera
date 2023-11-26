@@ -1,13 +1,21 @@
 package com.github.boybeak.icamera.app.camera
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.hardware.Camera
 import android.hardware.Camera.CameraInfo
+import android.util.Size
 import android.view.Display
 import android.view.Surface
 import android.view.SurfaceView
 import android.view.WindowManager
 import com.github.boybeak.cropper.draw.PreviewSurface
+import com.github.boybeak.cropper.draw.SharedSurface
+import com.github.boybeak.icamera.app.encoder.AVEncoder
+import com.github.boybeak.icamera.app.encoder.TimeSynchronizer
+import com.github.boybeak.icamera.app.encoder.audio.SimpleAudioConfigAdapter
+import com.github.boybeak.icamera.app.encoder.video.SimpleVideoConfigAdapter
+import java.io.File
 import java.lang.IllegalStateException
 
 
@@ -21,6 +29,8 @@ class SimpleCamera(context: Context) {
     private var previewSurfaceView: SurfaceView? = null
     private var previewSurface: PreviewSurface? = null
 
+    private var previewSurfaceTexture: SurfaceTexture? = null
+
     fun open(id: Int, surfaceView: SurfaceView) {
         if (id == cameraId) {
             return
@@ -28,49 +38,104 @@ class SimpleCamera(context: Context) {
         if (camera != null) {
             close()
         }
+
+        previewSurface = PreviewSurface(surfaceView.holder.surface)
+        previewSurfaceView = surfaceView
+        previewSurface?.start {
+            previewSurfaceTexture = it
+
+            val previewSize = openCameraOnly(id, it)
+            when(display.rotation) {
+                Surface.ROTATION_0, Surface.ROTATION_180 -> previewSurface?.setInputSize(previewSize.height, previewSize.width)
+                Surface.ROTATION_90, Surface.ROTATION_270 -> previewSurface?.setInputSize(previewSize.width, previewSize.height)
+            }
+        }
+    }
+
+    private fun openCameraOnly(id: Int, surfaceTexture: SurfaceTexture): Camera.Size {
         camera = Camera.open(id)
+        cameraId = id
 
         val params = camera?.parameters
-        params?.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO
-        val previewSize = findBestSize(display, id, params!!.supportedPreviewSizes, surfaceView.width, surfaceView.height)
+        applyBestFocusMode(params!!)
+        val previewSize = findBestSize(display, id, params.supportedPreviewSizes,
+            previewSurfaceView!!.width, previewSurfaceView!!.height)
         params.setPreviewSize(previewSize.width, previewSize.height)
         camera?.parameters = params
 
         camera?.setDisplayOrientation(getCameraDisplayOrientation(display, id))
 
-        previewSurface = PreviewSurface(surfaceView.holder.surface)
+        camera?.setPreviewTexture(surfaceTexture)
+        camera?.startPreview()
 
-        previewSurface?.start {
-            when(display.rotation) {
-                Surface.ROTATION_0, Surface.ROTATION_180 -> previewSurface?.setInputSize(previewSize.height, previewSize.width)
-                Surface.ROTATION_90, Surface.ROTATION_270 -> previewSurface?.setInputSize(previewSize.width, previewSize.height)
-            }
-            camera?.setPreviewTexture(it)
-            camera?.startPreview()
-
-        }
+        return previewSize
+    }
+    private fun closeCameraOnly() {
+        camera?.stopPreview()
+        camera?.release()
+        camera = null
     }
 
     fun toggle() {
         when(cameraId) {
             CameraID.FACING_FRONT.id -> {
-                open(CameraID.FACING_BACK.id, previewSurfaceView!!)
+                closeCameraOnly()
+                openCameraOnly(CameraID.FACING_BACK.id, previewSurfaceTexture!!)
             }
             CameraID.FACING_BACK.id -> {
-                open(CameraID.FACING_FRONT.id, previewSurfaceView!!)
+                closeCameraOnly()
+                openCameraOnly(CameraID.FACING_FRONT.id, previewSurfaceTexture!!)
             }
         }
     }
 
     fun close() {
-        camera?.stopPreview()
-        camera?.release()
-        camera = null
+        closeCameraOnly()
 
         previewSurface?.stop()
         previewSurface = null
 
         previewSurfaceView = null
+    }
+
+    private val avEncoder = AVEncoder()
+    private var recordSurface: SharedSurface? = null
+    private val timeSynchronizer = object : TimeSynchronizer {
+
+        private var startAt = 0L
+
+        override fun reset() {
+            startAt = System.currentTimeMillis() * 1000
+        }
+
+        override fun getTimestamp(): Long {
+            return System.currentTimeMillis() * 1000 - startAt
+        }
+    }
+
+    fun startRecord(output: File) {
+        if (isRecording()) {
+            return
+        }
+        avEncoder.prepare(SimpleAudioConfigAdapter(), SimpleVideoConfigAdapter(Size(previewSurfaceView!!.width, previewSurfaceView!!.height)), timeSynchronizer) {
+            avEncoder.start(output) {
+                recordSurface = SharedSurface(it)
+                recordSurface?.attach(previewSurface!!)
+            }
+        }
+    }
+
+    fun stopRecord() {
+        if (!isRecording()) {
+            return
+        }
+        avEncoder.stop()
+        recordSurface?.detach()
+        recordSurface = null
+    }
+
+    fun isRecording(): Boolean {
+        return avEncoder.isStarted
     }
 
     fun getPreviewingSurface(): PreviewSurface {
@@ -98,6 +163,20 @@ class SimpleCamera(context: Context) {
             (360 - result) % 360 // compensate the mirror
         } else {  // back-facing
             (info.orientation - degrees + 360) % 360
+        }
+    }
+
+    private fun applyBestFocusMode(parameters: Camera.Parameters) {
+        val preferFocusModes = arrayOf(
+            Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO,
+            Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE,
+            Camera.Parameters.FOCUS_MODE_AUTO
+        )
+        for (mode in preferFocusModes) {
+            if (parameters.supportedFocusModes.contains(mode)) {
+                parameters.focusMode = mode
+                break
+            }
         }
     }
 

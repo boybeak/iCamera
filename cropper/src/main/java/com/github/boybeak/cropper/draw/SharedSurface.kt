@@ -18,7 +18,7 @@ class SharedSurface(private val surface: Surface) : PreviewSurface.OnDrawFrameCa
 
     private var sharedSurface: WindowSurface? = null
 
-    private var drawer: FullFrameRect? = null
+    private var drawer: SizedFullFrameRect? = null
 
     private var sharedThread = HandlerThread("shared-${hashCode()}")
     private val sharedHandler by lazy { Handler() }
@@ -34,7 +34,9 @@ class SharedSurface(private val surface: Surface) : PreviewSurface.OnDrawFrameCa
             sharedSurface = WindowSurface(eglCore!!, surface, false)
             sharedSurface?.makeCurrent()
 
-            drawer = FullFrameRect(Texture2dProgram(Texture2dProgram.ProgramType.TEXTURE_EXT))
+            drawer = SizedFullFrameRect(Texture2dProgram(Texture2dProgram.ProgramType.TEXTURE_EXT))
+            val inputSize = previewSurface.getInputSize()
+            drawer?.setInputSize(inputSize.width, inputSize.height)
 
             previewSurface.addOnDrawFrameCallback(this)
             attachedSurface = previewSurface
