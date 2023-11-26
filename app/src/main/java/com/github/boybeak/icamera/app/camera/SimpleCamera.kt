@@ -1,9 +1,15 @@
 package com.github.boybeak.icamera.app.camera
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.ImageFormat
+import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
 import android.hardware.Camera
 import android.hardware.Camera.CameraInfo
+import android.media.ImageReader
+import android.media.ImageReader.OnImageAvailableListener
+import android.os.Handler
 import android.util.Size
 import android.view.Display
 import android.view.Surface
@@ -41,10 +47,10 @@ class SimpleCamera(context: Context) {
 
         previewSurface = PreviewSurface(surfaceView.holder.surface)
         previewSurfaceView = surfaceView
-        previewSurface?.start {
-            previewSurfaceTexture = it
+        previewSurface?.start { surfaceTexture ->
+            previewSurfaceTexture = surfaceTexture
 
-            val previewSize = openCameraOnly(id, it)
+            val previewSize = openCameraOnly(id, surfaceTexture)
             when(display.rotation) {
                 Surface.ROTATION_0, Surface.ROTATION_180 -> previewSurface?.setInputSize(previewSize.height, previewSize.width)
                 Surface.ROTATION_90, Surface.ROTATION_270 -> previewSurface?.setInputSize(previewSize.width, previewSize.height)
@@ -136,6 +142,18 @@ class SimpleCamera(context: Context) {
 
     fun isRecording(): Boolean {
         return avEncoder.isStarted
+    }
+
+    private var photoSurface: SharedSurface? = null
+    fun takePhoto(callback: (Bitmap) -> Unit) {
+        val imageReader = ImageReader.newInstance(previewSurfaceView!!.width, previewSurfaceView!!.height, PixelFormat.RGBA_8888, 1)
+        photoSurface = SharedSurface(imageReader.surface)
+        imageReader.setOnImageAvailableListener({
+            val image = imageReader.acquireNextImage()
+            // convert image to bitmap
+        }, Handler())
+        photoSurface?.attach(previewSurface!!)
+
     }
 
     fun getPreviewingSurface(): PreviewSurface {
