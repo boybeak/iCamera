@@ -1,4 +1,5 @@
 # iCamera
+A low-cost scheme for any size camera preview and video recording. Only use android API and no other libraries.
 
 ## Showcase
 **Share preview between SurfaceViews**
